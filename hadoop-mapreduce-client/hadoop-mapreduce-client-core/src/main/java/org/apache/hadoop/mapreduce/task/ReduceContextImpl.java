@@ -44,6 +44,15 @@ import org.apache.hadoop.mapreduce.StatusReporter;
 import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.util.Progressable;
 
+
+import java.util.*; 
+// Jianan added 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.io.MapWritable; // Jianan
+import org.apache.hadoop.io.IntWritable; // Jianan
+
+
 /**
  * The context passed to the {@link Reducer}.
  * @param <KEYIN> the class of the input keys
@@ -61,18 +70,21 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
   private Counter inputKeyCounter;
   private RawComparator<KEYIN> comparator;
   private KEYIN key;                                  // current key
-  private VALUEIN value;                              // current value
+  private VALUEIN value;                              // current value // Jianan uncommment
+  private MapWritable newvalue; // Jianan
   private boolean firstValue = false;                 // first value in key
   private boolean nextKeyIsSame = false;              // more w/ this key
   private boolean hasMore;                            // more in file
   protected Progressable reporter;
   private Deserializer<KEYIN> keyDeserializer;
-  private Deserializer<VALUEIN> valueDeserializer;
+  private Deserializer<VALUEIN> valueDeserializer; 
+  private Deserializer<MapWritable> newvalueDeserializer; // Jianan added 
   private DataInputBuffer buffer = new DataInputBuffer();
   private BytesWritable currentRawKey = new BytesWritable();
   private ValueIterable iterable = new ValueIterable();
   private boolean isMarked = false;
   private BackupStore<KEYIN,VALUEIN> backupStore;
+  private BackupStore<KEYIN,VALUEIN> newBackupStore; // Jianan 
   private final SerializationFactory serializationFactory;
   private final Class<KEYIN> keyClass;
   private final Class<VALUEIN> valueClass;
@@ -80,7 +92,10 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
   private final TaskAttemptID taskid;
   private int currentKeyLength = -1;
   private int currentValueLength = -1;
-  
+  private boolean melbourneShuffleEnabled = false;
+
+  private static final Log LOG = LogFactory.getLog(ReduceContextImpl.class.getName()); // Jianan
+
   public ReduceContextImpl(Configuration conf, TaskAttemptID taskid,
                            RawKeyValueIterator input, 
                            Counter inputKeyCounter,
@@ -90,8 +105,10 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
                            StatusReporter reporter,
                            RawComparator<KEYIN> comparator,
                            Class<KEYIN> keyClass,
-                           Class<VALUEIN> valueClass
-                          ) throws InterruptedException, IOException{
+                           Class<VALUEIN> valueClass, Integer melbourneKey) throws InterruptedException, IOException{
+
+
+
     super(conf, taskid, output, committer, reporter);
     this.input = input;
     this.inputKeyCounter = inputKeyCounter;
@@ -100,14 +117,26 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
     this.serializationFactory = new SerializationFactory(conf);
     this.keyDeserializer = serializationFactory.getDeserializer(keyClass);
     this.keyDeserializer.open(buffer);
-    this.valueDeserializer = serializationFactory.getDeserializer(valueClass);
-    this.valueDeserializer.open(buffer);
+    if (melbourneKey != 0) {
+      this.melbourneShuffleEnabled = true;
+      this.newvalueDeserializer = serializationFactory.getDeserializer(MapWritable.class);
+      this.newvalueDeserializer.open(buffer);
+    } else {
+      this.valueDeserializer = serializationFactory.getDeserializer(valueClass);
+      this.valueDeserializer.open(buffer);
+    } 
+    // //this.valueDeserializer = serializationFactory.getDeserializer(valueClass); // Jianan uncomment
+    // this.newvalueDeserializer = serializationFactory.getDeserializer(MapWritable.class); // Jianan
+    // //this.valueDeserializer.open(buffer); // Jianan uncomment 
+    // this.newvalueDeserializer.open(buffer); // Jianan
     hasMore = input.next();
     this.keyClass = keyClass;
     this.valueClass = valueClass;
     this.conf = conf;
     this.taskid = taskid;
   }
+
+
 
   /** Start processing next unique key. */
   public boolean nextKey() throws IOException,InterruptedException {
@@ -143,12 +172,29 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
     DataInputBuffer nextVal = input.getValue();
     buffer.reset(nextVal.getData(), nextVal.getPosition(), nextVal.getLength()
         - nextVal.getPosition());
-    value = valueDeserializer.deserialize(value);
+    if (!melbourneShuffleEnabled) {
+      value = valueDeserializer.deserialize(value);
+    } else {
+      newvalue = newvalueDeserializer.deserialize(newvalue);
+      LOG.info("Jianan.nextKeyValue() " + newvalue.toString());
+      IntWritable is_valid = new IntWritable(1);
+      if (newvalue.containsKey(is_valid)) {
+        value = (VALUEIN) newvalue.get(is_valid);
+      } // Jianan added
+    }
+    //value = valueDeserializer.deserialize(value); // Jianan 
+    // newvalue = newvalueDeserializer.deserialize(newvalue);
+    // LOG.info("Jianan.nextKeyValue() " + newvalue.toString());
+    // IntWritable is_valid = new IntWritable(1);
+    // if (newvalue.containsKey(is_valid)) {
+    //   value = (VALUEIN) newvalue.get(is_valid);
+    // } // Jianan added
 
     currentKeyLength = nextKey.getLength() - nextKey.getPosition();
     currentValueLength = nextVal.getLength() - nextVal.getPosition();
 
     if (isMarked) {
+      // we need a way to convert the type of nextVal from MapWritable to VALUEIN // TODO: Jianan
       backupStore.write(nextKey, nextVal);
     }
 
@@ -205,10 +251,21 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
         try {
           if (backupStore.hasNext()) {
             backupStore.next();
-            DataInputBuffer next = backupStore.nextValue();
+            DataInputBuffer next = backupStore.nextValue(); 
             buffer.reset(next.getData(), next.getPosition(), next.getLength()
                 - next.getPosition());
-            value = valueDeserializer.deserialize(value);
+            // Jianan uncomment this 
+            // value = valueDeserializer.deserialize(value);
+            if (!melbourneShuffleEnabled) {
+              value = valueDeserializer.deserialize(value);
+            } else {
+              newvalue = newvalueDeserializer.deserialize(newvalue);
+              LOG.info("Jianan.next() " + newvalue.toString());
+              IntWritable is_valid = new IntWritable(1);
+              if (newvalue.containsKey(is_valid)) {
+                value = (VALUEIN) newvalue.get(is_valid);
+              } // Jianan added
+            }
             return value;
           } else {
             inReset = false;
@@ -344,6 +401,7 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
         serializationFactory.getSerializer(valueClass);
       valueSerializer.open(out);
       valueSerializer.serialize(getCurrentValue());
+
     }
   }
 

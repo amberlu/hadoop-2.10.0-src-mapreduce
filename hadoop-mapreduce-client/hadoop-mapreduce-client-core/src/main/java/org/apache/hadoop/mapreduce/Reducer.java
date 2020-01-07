@@ -27,6 +27,14 @@ import org.apache.hadoop.mapreduce.task.annotation.Checkpointable;
 
 import java.util.Iterator;
 
+// Jianan added 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import java.util.*; 
+//import org.apache.hadoop.io.MapWritable; // Jianan
+//import org.javatuples.Pair;
+//import org.apache.commons.lang3.tuple.Pair;
+
 /** 
  * Reduces a set of intermediate values which share a key to a smaller set of
  * values.  
@@ -123,6 +131,8 @@ import java.util.Iterator;
 @InterfaceStability.Stable
 public class Reducer<KEYIN,VALUEIN,KEYOUT,VALUEOUT> {
 
+  private static final Log LOG = LogFactory.getLog(Reducer.class.getName()); // Jianan
+
   /**
    * The <code>Context</code> passed on to the {@link Reducer} implementations.
    */
@@ -172,9 +182,26 @@ public class Reducer<KEYIN,VALUEIN,KEYOUT,VALUEOUT> {
   public void run(Context context) throws IOException, InterruptedException {
     setup(context);
     try {
-      
+      LOG.info("Jianan: Reducer.run starts"); // Jianan
       while (context.nextKey()) {
+
+        KEYIN key = context.getCurrentKey(); // Jianan 
+        LOG.info("Jianan: reduce on key " + key.toString()); // Jianan 
+
+        // Iterable<HashMap<Integer,VALUEIN>> old_values = context.getValues(); // maptask does not properly write the pair value to disk
+        // LOG.info("Jianan: old values " + old_values);
+
+        // ArrayList<VALUEIN> new_values = new ArrayList();
+        // for (HashMap<Integer,VALUEIN> pair: old_values) {
+        //   if (pair.containsKey(1)) {
+        //     new_values.add(pair.get(1));
+        //   }
+        // }
+        // LOG.info("Jianan: new values " + new_values.toString());
+        LOG.info("Jianan: reduce on value(s) + " + context.getValues()); // Jianan 
+        
         reduce(context.getCurrentKey(), context.getValues(), context);
+        //reduce(context.getCurrentKey(), context.getValues(), context);
         // If a back up store is used, reset it
         Iterator<VALUEIN> iter = context.getValues().iterator();
         if(iter instanceof ReduceContext.ValueIterator) {

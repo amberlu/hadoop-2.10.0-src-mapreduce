@@ -373,6 +373,7 @@ public class ReduceTask extends Task {
                   mapOutputFile, localMapFiles);
     shuffleConsumerPlugin.init(shuffleContext);
 
+
     rIter = shuffleConsumerPlugin.run();
 
     // free up the data structures
@@ -622,7 +623,7 @@ public class ReduceTask extends Task {
                                                trackedRW,
                                                committer,
                                                reporter, comparator, keyClass,
-                                               valueClass);
+                                               valueClass, job.getMelbourneKey());
     try {
       reducer.run(reducerContext);
     } finally {
