@@ -48,9 +48,7 @@ import org.apache.hadoop.io.RawComparator;
 import org.apache.hadoop.io.SequenceFile;
 import org.apache.hadoop.io.SequenceFile.CompressionType;
 import org.apache.hadoop.io.Text;
-import org.apache.hadoop.io.MapWritable; // Jianan
-import org.apache.hadoop.io.IntWritable; // Jianan
-import org.apache.hadoop.io.Writable; // Jianan
+
 import org.apache.hadoop.io.compress.CompressionCodec;
 import org.apache.hadoop.io.compress.DefaultCodec;
 import org.apache.hadoop.io.serializer.Deserializer;
@@ -78,13 +76,13 @@ import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hadoop.util.StringInterner;
 import org.apache.hadoop.util.StringUtils;
 
-// Jianan: added 
+// COS518 Added 
 import java.util.Collections; 
 import java.util.Random; 
 import java.util.*; 
-//import org.javatuples.Pair;
-//import org.apache.commons.lang3.tuple.Pair;
-//import org.apache.hadoop.mapreduce.lib.join.TupleWritable;
+import org.apache.hadoop.io.MapWritable; 
+import org.apache.hadoop.io.IntWritable; 
+import org.apache.hadoop.io.Writable; 
 
 /** A Map task. */
 @InterfaceAudience.LimitedPrivate({"MapReduce"})
@@ -719,7 +717,7 @@ public class MapTask extends Task {
       if (partitions > 1) {
         LOG.info("Jianan: MapTask.NewOutputCollector.init() partitions > 1");
 
-        // COS518 Edition starts
+        // MARK: COS518 Edition 
         // get melbourne key from configuration if any
         final int melbournekey = conf.getMelbourneKey();
         if (melbournekey == 0) {
@@ -819,7 +817,8 @@ public class MapTask extends Task {
             }
           };
         }
-        // COS518 Edition ends
+        // MARK: End 
+
       } else {
         LOG.info("Jianan: MapTask.NewOutputCollector.init() partitions <= 1");
         partitioner = new org.apache.hadoop.mapreduce.Partitioner<K,V>() {
@@ -831,6 +830,8 @@ public class MapTask extends Task {
         };
       }
     }
+
+
 
     @Override
     public void write(K key, V value) throws IOException, InterruptedException {
@@ -978,6 +979,8 @@ public class MapTask extends Task {
                                ClassNotFoundException {
     }
 
+
+
     public void collect(K key, V value, int partition) throws IOException {
       reporter.progress();
       long bytesOutPrev = getOutputBytes(fsStats);
@@ -1005,7 +1008,7 @@ public class MapTask extends Task {
 
     //partitionCounters is a list keeping tracks of
     // number of records in each partition in the current spill
-    //private List<Integer> partitionCounters = new ArrayList<Integer>(); // Jianan added
+    private List<Integer> partitionCounters = new ArrayList<Integer>(); // Jianan added
 
     private JobConf job;
     private TaskReporter reporter;
@@ -1015,8 +1018,7 @@ public class MapTask extends Task {
     private SerializationFactory serializationFactory;
     private Serializer<K> keySerializer;
 
-    private Serializer<V> valSerializer; // Jianan uncomment 
-    //private Serializer<HashMap> valSerializer; // Jianan 
+    private Serializer<V> valSerializer;  
     private Serializer<MapWritable> newvalSerializer;
 
     private CombinerRunner<K,V> combinerRunner;
@@ -1084,8 +1086,13 @@ public class MapTask extends Task {
     private Progress sortPhase;
     private Counters.Counter spilledRecordsCounter;
 
-    private int numRecords; // Jianan  
-    private boolean melbourneShuffleEnabled = false;
+    // COS518 Added 
+    private int numRecords;   
+    private boolean melbourneShuffleEnabled = false; 
+    private K fake_key;
+    private V fake_val;
+    private boolean isDummy = false;
+
 
     public MapOutputBuffer() {
     }
@@ -1104,17 +1111,19 @@ public class MapTask extends Task {
       spilledRecordsCounter = reporter.getCounter(TaskCounter.SPILLED_RECORDS);
       partitions = job.getNumReduceTasks();
 
-      numRecords = 0; // Jianan 
-
       if (job.getMelbourneKey() != 0) {
         melbourneShuffleEnabled = true;
       }
 
+      // MARK: COS518 Edition
+      numRecords = 0; 
+
       // each partition intially contains no record
-      // Jianan: added
-      // for (int i = 0; i < partitions; i++) {
-      //   partitionCounters.add(0);
-      // }
+      for (int i = 0; i < partitions; i++) {
+        partitionCounters.add(0);
+      }
+      // MARK: End
+
 
       rfs = ((LocalFileSystem)FileSystem.getLocal(job)).getRaw();
 
@@ -1166,6 +1175,7 @@ public class MapTask extends Task {
       keySerializer = serializationFactory.getSerializer(keyClass);
       keySerializer.open(bb);
 
+      // MARK: COS518 Edition
       if (!melbourneShuffleEnabled) {
         valSerializer = serializationFactory.getSerializer(valClass);
         valSerializer.open(bb);
@@ -1173,12 +1183,7 @@ public class MapTask extends Task {
         newvalSerializer = serializationFactory.getSerializer(MapWritable.class);
         newvalSerializer.open(bb);
       }
-      //valSerializer = serializationFactory.getSerializer(valClass); // Jianan uncomment this 
-      //newvalSerializer = serializationFactory.getSerializer(MapWritable.class);
-      //valSerializer = serializationFactory.getSerializer(HashMap.class); //should use Pair<V, Boolean>?
-      // valSerializer.open(bb); // Jianan uncomment this
-      
-      // //newvalSerializer.open(bb);
+      // MARK: End
 
       // output counters
       mapOutputByteCounter = reporter.getCounter(TaskCounter.MAP_OUTPUT_BYTES);
@@ -1230,6 +1235,29 @@ public class MapTask extends Task {
       }
     }
 
+
+    // MARK: COS518 Edition
+    /**
+     * Serialize dummy records to intermediate storage.
+     */
+    public void collectDummies() throws IOException {
+      LOG.info("Jianan: MapOutputBuffer.collectDummy() begins");
+      isDummy = true;
+      // max is the size of the most popularized partition
+      int max = Collections.max(partitionCounters);
+      // for every partition, pad upto max number of dummy records 
+      for (int i = 0; i < partitions; i++) {
+        int currCount = partitionCounters.get(i);
+        int numAdded = max - currCount;
+        for (int j = 0; j < numAdded; j++) {
+          this.collect(fake_key, fake_val, i);
+        }
+      }
+    }
+    // MARK: End
+
+
+
     /**
      * Serialize the key, value to intermediate storage.
      * When this method returns, kvindex must refer to sufficient unused
@@ -1261,16 +1289,6 @@ public class MapTask extends Task {
 
         // start spill if the thread is not running and the soft limit has been
         // reached
-
-        // Jianan
-        // max is the number of padding each 
-        // int max = Collections.max(partitionCounters);
-        // //System.out.println("Jianan: MapOutputBuffer.collect: max limit is " + max);
-        // // for every partition, pad the corresponding dummy records
-        // for (int i = 0; i < partitions; i++) {
-        //   int currCount = partitionCounters.get(i);
-        //   int numAdded = max - currCount;
-        // }
 
 
         spillLock.lock();
@@ -1339,30 +1357,25 @@ public class MapTask extends Task {
           keystart = 0;
         }
 
-        // Jianan starts 
-        // HashMap<Integer,V> new_value = new HashMap<Integer,V>();
-        // new_value.put(1, value);
-        
-
-        // LOG.info("Jianan: collect new value is " + new_value.toString());
-        // Jianan ends
         // serialize value bytes into buffer
         final int valstart = bufindex;
 
+        // MARK: COS518 Edition
         if (!melbourneShuffleEnabled) {
           valSerializer.serialize(value);
         } else {
           MapWritable new_val = new MapWritable();
+
           IntWritable dummy_key = new IntWritable(1);
+          if (isDummy) {
+            dummy_key = new IntWritable(0);
+          } 
+          
           new_val.put((Writable)dummy_key, (Writable)value);
           newvalSerializer.serialize(new_val);
         }
-        //valSerializer.serialize(value); // Jianan uncomment 
-        // MapWritable new_val = new MapWritable();
-        // IntWritable dummy_key = new IntWritable(1);
-        // new_val.put((Writable)dummy_key, (Writable)value);
-        // //valSerializer.serialize(value); // Jianan uncomment this
-        // newvalSerializer.serialize(new_val);
+        // MARK: End
+        
         // It's possible for records to shave zero length, i.e. the serializer
         // will perform no writes. To ensure that the boundary conditions are
         // checked and that the kvindex invariant is maintained, perform a
@@ -1388,18 +1401,16 @@ public class MapTask extends Task {
         kvindex = (kvindex - NMETA + kvmeta.capacity()) % kvmeta.capacity();
 
 
-        //***********************************************************//
-        //*****************MARK: COS518 addition *********************//
-        //***********************************************************//
-
+        // MARK: COS518 Edition 
         // update partitionCounters 
-        // int partitionOldCount = partitionCounters.get(partition);
-        // partitionCounters.set(partition, partitionOldCount + 1);
-
+        int partitionOldCount = partitionCounters.get(partition);
+        partitionCounters.set(partition, partitionOldCount + 1);
         
         numRecords ++;
+        fake_key = key;
+        fake_val = value;
         LOG.info("Jianan: NewOutputBuffer numRecords is " + numRecords);
-        // Jianan: ends
+        // MARK: End
 
       } catch (MapBufferTooSmallException e) {
         LOG.info("Record too large for in-memory buffer: " + e.getMessage());
@@ -1683,8 +1694,15 @@ public class MapTask extends Task {
 
     public void flush() throws IOException, ClassNotFoundException,
            InterruptedException {
+
+      // MARK: COS518 Edition
+      LOG.info("Jianan: before actual flush() begins, pad with dummy records if needed"); 
+      if (job.getMelbourneKey() != 0) { // add dummy records when melbourne shuffle is invoked
+        collectDummies();
+      }
+      // MARK: End
+
       LOG.info("Starting flush of map output");
-      LOG.info("Jianan: flush() begins"); 
       if (kvbuffer == null) {
         LOG.info("kvbuffer is null. Skipping flush.");
         return;
@@ -1740,13 +1758,14 @@ public class MapTask extends Task {
       Path outputPath = mapOutputFile.getOutputFile();
       fileOutputByteCounter.increment(rfs.getFileStatus(outputPath).getLen());
 
-      // Jianan
-      // COS518 Edition : just for testing, read the final merged output file 
+      // MARK: COS518 Edition 
+      // just for testing, read the final merged output file 
       LOG.info("Jianan: reading from the final merged output file " + outputPath.toString());
       FSDataInputStream inputStream = rfs.open(outputPath);
       byte[] inputBytes = new byte[inputStream.available()];
       inputStream.read(inputBytes);
       LOG.info("Jianan: file content is: " + new String(inputBytes));
+      // MARK: End
 
     }
 
@@ -1880,8 +1899,6 @@ public class MapTask extends Task {
                 combinerRunner.combine(kvIter, combineCollector);
                 LOG.info("Jianan: SpillThread.sortAndSpill() runs combiner");
               }
-
-              //System.out.println("Jianan: MapTask.SpillThread.sortAndSpill: should add dummy records here after combiner");
 
             }
 
@@ -2211,12 +2228,14 @@ public class MapTask extends Task {
         }
         spillRec.writeToFile(finalIndexFile, job);
 
-        // COS518 Edition: for testing, reading from final index file
+        // MARK: COS518 Edition
+        // for testing, reading from final index file
         LOG.info("Jianan: reading from final index file " + finalIndexFile.toString());
         FSDataInputStream inputStream = rfs.open(finalIndexFile);
         byte[] inputBytes = new byte[inputStream.available()];
         inputStream.read(inputBytes);
         LOG.info("Jianan: file content is: " + new String(inputBytes));
+        // MARK: End
         
 
         finalOut.close();

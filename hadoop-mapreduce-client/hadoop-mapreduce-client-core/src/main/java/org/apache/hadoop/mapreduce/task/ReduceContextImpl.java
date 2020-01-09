@@ -44,13 +44,12 @@ import org.apache.hadoop.mapreduce.StatusReporter;
 import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.util.Progressable;
 
-
+// COS518 Added
 import java.util.*; 
-// Jianan added 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.io.MapWritable; // Jianan
-import org.apache.hadoop.io.IntWritable; // Jianan
+import org.apache.hadoop.io.MapWritable; 
+import org.apache.hadoop.io.IntWritable; 
 
 
 /**
@@ -70,21 +69,18 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
   private Counter inputKeyCounter;
   private RawComparator<KEYIN> comparator;
   private KEYIN key;                                  // current key
-  private VALUEIN value;                              // current value // Jianan uncommment
-  private MapWritable newvalue; // Jianan
+  private VALUEIN value;                              // current value 
   private boolean firstValue = false;                 // first value in key
   private boolean nextKeyIsSame = false;              // more w/ this key
   private boolean hasMore;                            // more in file
   protected Progressable reporter;
   private Deserializer<KEYIN> keyDeserializer;
   private Deserializer<VALUEIN> valueDeserializer; 
-  private Deserializer<MapWritable> newvalueDeserializer; // Jianan added 
   private DataInputBuffer buffer = new DataInputBuffer();
   private BytesWritable currentRawKey = new BytesWritable();
   private ValueIterable iterable = new ValueIterable();
   private boolean isMarked = false;
   private BackupStore<KEYIN,VALUEIN> backupStore;
-  private BackupStore<KEYIN,VALUEIN> newBackupStore; // Jianan 
   private final SerializationFactory serializationFactory;
   private final Class<KEYIN> keyClass;
   private final Class<VALUEIN> valueClass;
@@ -92,9 +88,14 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
   private final TaskAttemptID taskid;
   private int currentKeyLength = -1;
   private int currentValueLength = -1;
-  private boolean melbourneShuffleEnabled = false;
 
-  private static final Log LOG = LogFactory.getLog(ReduceContextImpl.class.getName()); // Jianan
+  // COS518 Added 
+  private MapWritable newvalue;                       // current MapWritable value if melbourne shuffle enabled
+  private Deserializer<MapWritable> newvalueDeserializer; // deserializer for MapWritable objects 
+  private boolean melbourneShuffleEnabled = false;    // boolean indicating whether melbourne shuffle is enabled
+  
+
+  private static final Log LOG = LogFactory.getLog(ReduceContextImpl.class.getName()); 
 
   public ReduceContextImpl(Configuration conf, TaskAttemptID taskid,
                            RawKeyValueIterator input, 
@@ -105,30 +106,33 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
                            StatusReporter reporter,
                            RawComparator<KEYIN> comparator,
                            Class<KEYIN> keyClass,
-                           Class<VALUEIN> valueClass, Integer melbourneKey) throws InterruptedException, IOException{
+                           Class<VALUEIN> valueClass, Integer melbourneKey) throws InterruptedException, IOException{ // COS518 Edition: take an extra parameter for melbourne shuffle
 
 
 
     super(conf, taskid, output, committer, reporter);
     this.input = input;
+
     this.inputKeyCounter = inputKeyCounter;
     this.inputValueCounter = inputValueCounter;
     this.comparator = comparator;
     this.serializationFactory = new SerializationFactory(conf);
     this.keyDeserializer = serializationFactory.getDeserializer(keyClass);
     this.keyDeserializer.open(buffer);
+
+    // MARK: COS518 Edition  
     if (melbourneKey != 0) {
+      // if melbourne shuffle enabled, use MapWritable deserializer
       this.melbourneShuffleEnabled = true;
       this.newvalueDeserializer = serializationFactory.getDeserializer(MapWritable.class);
       this.newvalueDeserializer.open(buffer);
     } else {
+      // otherwise, use the default for value type 
       this.valueDeserializer = serializationFactory.getDeserializer(valueClass);
       this.valueDeserializer.open(buffer);
     } 
-    // //this.valueDeserializer = serializationFactory.getDeserializer(valueClass); // Jianan uncomment
-    // this.newvalueDeserializer = serializationFactory.getDeserializer(MapWritable.class); // Jianan
-    // //this.valueDeserializer.open(buffer); // Jianan uncomment 
-    // this.newvalueDeserializer.open(buffer); // Jianan
+    // MARK: End
+
     hasMore = input.next();
     this.keyClass = keyClass;
     this.valueClass = valueClass;
@@ -153,53 +157,108 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
     }
   }
 
+  // Mark: COS518 Edition
+
+  // Given an input buffer for the record's value (of Type MapWritable)
+  // check whether it corresponds to a dummy record or not
+  public boolean isDummyRecord(DataInputBuffer inputVal) throws IOException, InterruptedException {
+    SerializationFactory tmpSerializationFactory = new SerializationFactory(conf);
+    DataInputBuffer inputBuffer = new DataInputBuffer();
+    Deserializer<MapWritable> deserializer = tmpSerializationFactory.getDeserializer(MapWritable.class);
+    deserializer.open(inputBuffer);
+    inputBuffer.reset(inputVal.getData(), inputVal.getPosition(), inputVal.getLength() - inputVal.getPosition());
+
+    MapWritable outputVal = new MapWritable();
+    outputVal = deserializer.deserialize(outputVal);
+    if (outputVal.containsKey(new IntWritable(0))) {
+      return true;
+    }
+    return false;
+  }
+
+  // Find the next valid record 
+  // And update certain global fields: hasMore, nextKeyIsSame
+  public void findNextValidRecord() throws IOException, InterruptedException{
+    if (hasMore) {
+      if (isDummyRecord(input.getValue())) { // if next is a dummy record
+        hasMore = input.next(); // move on to the next item in input 
+        findNextValidRecord();
+      } else { // next is a valid record
+        DataInputBuffer inputKey = input.getKey();
+        nextKeyIsSame = comparator.compare(currentRawKey.getBytes(), 0, // update the field nextKeyIsSame
+                                   currentRawKey.getLength(),
+                                   inputKey.getData(),
+                                   inputKey.getPosition(),
+                                   inputKey.getLength() - inputKey.getPosition()
+                                       ) == 0;
+        return;
+      }
+    } else { // no more records to process
+      nextKeyIsSame = false;
+      return;
+    }
+  }
+  // Mark: End
+
+
   /**
-   * Advance to the next key/value pair.
+   * Advance to the next key/value pair. 
    */
+  // COS518 Modification: advance to the next valid key/value pair
+  
   @Override
   public boolean nextKeyValue() throws IOException, InterruptedException {
+    boolean is_dummy = false;
+
     if (!hasMore) {
       key = null;
       value = null;
       return false;
     }
+
     firstValue = !nextKeyIsSame;
+
     DataInputBuffer nextKey = input.getKey();
     currentRawKey.set(nextKey.getData(), nextKey.getPosition(), 
                       nextKey.getLength() - nextKey.getPosition());
     buffer.reset(currentRawKey.getBytes(), 0, currentRawKey.getLength());
     key = keyDeserializer.deserialize(key);
+
     DataInputBuffer nextVal = input.getValue();
     buffer.reset(nextVal.getData(), nextVal.getPosition(), nextVal.getLength()
         - nextVal.getPosition());
+
+    // MARK: COS518 Edition 
     if (!melbourneShuffleEnabled) {
+      // if melbourne shuffle disabled
+      // use the default value deserializer 
       value = valueDeserializer.deserialize(value);
     } else {
+      // otherwise, use MapWritable deserializer
+      // newvalue has type MapWritable <IntWritable, VALUEIN>
       newvalue = newvalueDeserializer.deserialize(newvalue);
-      LOG.info("Jianan.nextKeyValue() " + newvalue.toString());
-      IntWritable is_valid = new IntWritable(1);
-      if (newvalue.containsKey(is_valid)) {
-        value = (VALUEIN) newvalue.get(is_valid);
-      } // Jianan added
+      IntWritable validKey = new IntWritable(1);
+      if (newvalue.containsKey(validKey)) {
+        // if the record is valid, update value
+        value = (VALUEIN) newvalue.get(validKey);
+      } else {
+        // otherwise set is_dummy flag
+        is_dummy = true;
+      }
     }
-    //value = valueDeserializer.deserialize(value); // Jianan 
-    // newvalue = newvalueDeserializer.deserialize(newvalue);
-    // LOG.info("Jianan.nextKeyValue() " + newvalue.toString());
-    // IntWritable is_valid = new IntWritable(1);
-    // if (newvalue.containsKey(is_valid)) {
-    //   value = (VALUEIN) newvalue.get(is_valid);
-    // } // Jianan added
+    // MARK: End
 
     currentKeyLength = nextKey.getLength() - nextKey.getPosition();
     currentValueLength = nextVal.getLength() - nextVal.getPosition();
 
     if (isMarked) {
-      // we need a way to convert the type of nextVal from MapWritable to VALUEIN // TODO: Jianan
+      // Note: nextVal here can be a MapWritable Object
+      // In next(), reading from backupStore will convert MapWritable to VALUEIN  
       backupStore.write(nextKey, nextVal);
     }
 
     hasMore = input.next();
-    if (hasMore) {
+    if (hasMore) { 
       nextKey = input.getKey();
       nextKeyIsSame = comparator.compare(currentRawKey.getBytes(), 0, 
                                      currentRawKey.getLength(),
@@ -210,7 +269,19 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
     } else {
       nextKeyIsSame = false;
     }
-    inputValueCounter.increment(1);
+
+
+    // MARK: COS518 Edition
+    if (is_dummy) { 
+      // this is a dummy record
+      // recursively call nextKeyValue() until it finds a valid record or hits the end
+      // TODO: is the first record is dummy, should i update anything?
+      return nextKeyValue();
+    }    
+    // MARK: End
+
+    inputValueCounter.increment(1); // increment the count for valid values 
+    findNextValidRecord(); // COS518 Modification: move to the next valid record if any
     return true;
   }
 
@@ -233,7 +304,7 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
     private boolean clearMarkFlag = false;
 
     @Override
-    public boolean hasNext() {
+    public boolean hasNext() { 
       try {
         if (inReset && backupStore.hasNext()) {
           return true;
@@ -254,18 +325,28 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
             DataInputBuffer next = backupStore.nextValue(); 
             buffer.reset(next.getData(), next.getPosition(), next.getLength()
                 - next.getPosition());
-            // Jianan uncomment this 
+            
+            // MARK: COS518 Edition 
+            // TODO: update this 
             // value = valueDeserializer.deserialize(value);
-            if (!melbourneShuffleEnabled) {
+            if (!melbourneShuffleEnabled) { 
+              // if melbourne shuffle disabled
+              // use the default value deserializer for VALUEIN class 
               value = valueDeserializer.deserialize(value);
-            } else {
+            } else { 
+              // otherwise, use MapWritable deserializer
               newvalue = newvalueDeserializer.deserialize(newvalue);
-              LOG.info("Jianan.next() " + newvalue.toString());
-              IntWritable is_valid = new IntWritable(1);
-              if (newvalue.containsKey(is_valid)) {
-                value = (VALUEIN) newvalue.get(is_valid);
-              } // Jianan added
+              IntWritable validKey = new IntWritable(1);
+              if (newvalue.containsKey(validKey)) { 
+                // if the record is valid, update value
+                value = (VALUEIN) newvalue.get(validKey);
+              } else {
+                // otherwise, skip this dummy record and continue
+                next();
+              }
             }
+            // MARK: End
+
             return value;
           } else {
             inReset = false;
@@ -281,7 +362,6 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
         }
       } 
 
-      // if this is the first record, we don't need to advance
       if (firstValue) {
         firstValue = false;
         return value;
@@ -295,6 +375,7 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
       try {
         nextKeyValue();
         return value;
+        
       } catch (IOException ie) {
         throw new RuntimeException("next value iterator failed", ie);
       } catch (InterruptedException ie) {

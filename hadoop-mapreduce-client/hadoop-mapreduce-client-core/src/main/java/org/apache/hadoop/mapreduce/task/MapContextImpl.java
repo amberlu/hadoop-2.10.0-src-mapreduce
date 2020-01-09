@@ -45,6 +45,7 @@ public class MapContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
     extends TaskInputOutputContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT> 
     implements MapContext<KEYIN, VALUEIN, KEYOUT, VALUEOUT> {
   private RecordReader<KEYIN,VALUEIN> reader;
+  private RecordWriter<KEYOUT,VALUEOUT> writer;
   private InputSplit split;
 
   public MapContextImpl(Configuration conf, TaskAttemptID taskid,
@@ -64,6 +65,7 @@ public class MapContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
   public InputSplit getInputSplit() {
     return split;
   }
+
 
   @Override
   public KEYIN getCurrentKey() throws IOException, InterruptedException {

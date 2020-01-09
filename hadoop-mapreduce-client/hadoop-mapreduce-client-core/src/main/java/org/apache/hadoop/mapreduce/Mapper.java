@@ -103,7 +103,10 @@ import org.apache.commons.logging.LogFactory;
 @InterfaceStability.Stable
 public class Mapper<KEYIN, VALUEIN, KEYOUT, VALUEOUT> {
 
-  private static final Log LOG = LogFactory.getLog(Mapper.class.getName()); // Jianan
+  private static final Log LOG = LogFactory.getLog(Mapper.class.getName()); 
+
+  private KEYOUT dummy_key;
+  private VALUEOUT dummy_val; 
 
   /**
    * The <code>Context</code> passed on to the {@link Mapper} implementations.
@@ -135,8 +138,10 @@ public class Mapper<KEYIN, VALUEIN, KEYOUT, VALUEOUT> {
    */
   protected void cleanup(Context context
                          ) throws IOException, InterruptedException {
-    // NOTHING
+
   }
+
+
   
   /**
    * Expert users can override this method for more complete control over the
@@ -149,19 +154,9 @@ public class Mapper<KEYIN, VALUEIN, KEYOUT, VALUEOUT> {
     try {
 
       LOG.info("Jianan: mapreduce.Mapper.run() starts"); // Jianan 
-      // int count = 0;
-      // KEYIN dummy_key;
       while (context.nextKeyValue()) {
         map(context.getCurrentKey(), context.getCurrentValue(), context);
-        // count ++;
-        // dummy_key = context.getCurrentKey();
-        //System.out.println("key: " + context.getCurrentKey().toString() + "; value: " + context.getCurrentValue().toString()); // Jianan
       }
-
-      // while (count < 20) {
-      //   count ++;
-      //   map(dummy_key, (VALUEIN) null, context);
-      // }
 
     } finally {
       cleanup(context);

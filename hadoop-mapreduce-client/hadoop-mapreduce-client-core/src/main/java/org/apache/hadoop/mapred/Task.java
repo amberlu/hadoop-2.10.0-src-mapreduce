@@ -1588,7 +1588,7 @@ abstract public class Task implements Writable, Configurable {
                       org.apache.hadoop.mapreduce.OutputCommitter committer,
                       org.apache.hadoop.mapreduce.StatusReporter reporter,
                       RawComparator<INKEY> comparator,
-                      Class<INKEY> keyClass, Class<INVALUE> valueClass, Integer melbourneKey
+                      Class<INKEY> keyClass, Class<INVALUE> valueClass, Integer melbourneKey // COS518 Edition: take in another int variable for melbourne key
   ) throws IOException, InterruptedException {
     org.apache.hadoop.mapreduce.ReduceContext<INKEY, INVALUE, OUTKEY, OUTVALUE> 
     reduceContext = 
@@ -1601,7 +1601,7 @@ abstract public class Task implements Writable, Configurable {
                                                               reporter, 
                                                               comparator, 
                                                               keyClass, 
-                                                              valueClass, melbourneKey);
+                                                              valueClass, melbourneKey); // COS518 Edition: take in melbourne key
 
     org.apache.hadoop.mapreduce.Reducer<INKEY,INVALUE,OUTKEY,OUTVALUE>.Context 
         reducerContext = 
@@ -1771,7 +1771,7 @@ abstract public class Task implements Writable, Configurable {
                                                 new OutputConverter(collector),
                                                 committer,
                                                 reporter, comparator, keyClass,
-                                                valueClass, job.getMelbourneKey());
+                                                valueClass, job.getMelbourneKey()); // COS518 Edition: take in melbourne key
       reducer.run(reducerContext);
     } 
   }

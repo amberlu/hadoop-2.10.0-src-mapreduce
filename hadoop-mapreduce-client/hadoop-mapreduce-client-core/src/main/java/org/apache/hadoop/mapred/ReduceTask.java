@@ -623,7 +623,7 @@ public class ReduceTask extends Task {
                                                trackedRW,
                                                committer,
                                                reporter, comparator, keyClass,
-                                               valueClass, job.getMelbourneKey());
+                                               valueClass, job.getMelbourneKey()); // COS518 Edition: pass melbourne key if any
     try {
       reducer.run(reducerContext);
     } finally {
