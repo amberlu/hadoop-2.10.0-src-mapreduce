@@ -698,6 +698,7 @@ public class MapTask extends Task {
     private final MapOutputCollector<K,V> collector;
     private final org.apache.hadoop.mapreduce.Partitioner<K,V> partitioner;
     private final int partitions;
+    private Random random; // Jianan added 
 
     @SuppressWarnings("unchecked")
     NewOutputCollector(org.apache.hadoop.mapreduce.JobContext jobContext,
@@ -734,8 +735,8 @@ public class MapTask extends Task {
              */ 
             private int[] PRNG(int seed) {
               int[] result = new int[2];
-
-              Random random = new Random();
+              //Random random = new Random();
+              random = new Random(); // Jianan added 
               // given a specific seed
               random.setSeed(Long.valueOf(seed)); 
               // the next value is deterministic
@@ -762,37 +763,36 @@ public class MapTask extends Task {
              * @return an pseudorandom int  
              */ 
             private int PRF(int secret_key, K key) {
-              return key.hashCode()
-
-              // // use hashCode to ensure all keys will have the same input length
-              // int hashed_input = key.hashCode(); 
-              // // convert input to a bit array 
+              // use hashCode to ensure all keys will have the same input length
+              int hashed_input = key.hashCode(); 
+              // convert input to a bit array 
               // String final_input = Integer.toBinaryString(hashed_input);
-
-              // // initialize the seed 
-              // int seed = secret_key;
-              // // initialize output 
-              // int output = hashed_input; 
+              // initialize the seed 
+              int seed = secret_key;
+              // initialize output 
+              int output = hashed_input; 
 
               // for (int i = 0; i < final_input.length(); i++) {
-              //   int[] result = PRNG(seed);
+              for (int i = 0; i < 64; i++) {
+                int[] result = PRNG(seed);
 
-              //   if (final_input.charAt(i) == '0') {
-              //     // if the i-th bit is 0
-              //     // pick the first pseudorandom number
-              //     // update seed 
-              //     output = result[0];
-              //     seed = result[0];
-              //   } else {
-              //     // if the i-th bit is 1
-              //     // pick the second pseudorandom number
-              //     // update seed
-              //     output = result[1];
-              //     seed = result[1];
-              //   }
-              // }
-
-              // return output;
+                // if (final_input.charAt(i) == '0') {
+                if ((hashed_input % 2) == 0) {
+                  // if the i-th bit is 0
+                  // pick the first pseudorandom number
+                  // update seed 
+                  output = result[0];
+                  seed = result[0];
+                } else {
+                  // if the i-th bit is 1
+                  // pick the second pseudorandom number
+                  // update seed
+                  output = result[1];
+                  seed = result[1];
+                }
+                hashed_input /= 2;
+              }
+              return output;
             }
 
 
