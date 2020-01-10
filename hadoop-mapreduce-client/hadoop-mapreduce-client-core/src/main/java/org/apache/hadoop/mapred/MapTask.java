@@ -1411,7 +1411,7 @@ public class MapTask extends Task {
         numRecords ++;
         fake_key = key;
         fake_val = value;
-        LOG.info("Jianan: NewOutputBuffer numRecords is " + numRecords);
+        //LOG.info("Jianan: NewOutputBuffer numRecords is " + numRecords);
         // MARK: End
 
       } catch (MapBufferTooSmallException e) {
@@ -1698,17 +1698,16 @@ public class MapTask extends Task {
            InterruptedException {
 
       // MARK: COS518 Edition
-      LOG.info("Jianan: before actual flush() begins, pad with dummy records if needed"); 
+      //LOG.info("Jianan: before actual flush() begins, pad with dummy records if needed"); 
       if (job.getMelbourneKey() != 0) { // add dummy records when melbourne shuffle is invoked
         collectDummies();
       }
       // MARK: End
 
       LOG.info("Starting flush of map output");
-<<<<<<< HEAD
-=======
+
       //LOG.info("Jianan: flush() begins"); 
->>>>>>> prf
+
       if (kvbuffer == null) {
         LOG.info("kvbuffer is null. Skipping flush.");
         return;

@@ -95,7 +95,6 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
   private boolean melbourneShuffleEnabled = false;    // boolean indicating whether melbourne shuffle is enabled
   private Deserializer<MapWritable> tmpDeserializer;
   private DataInputBuffer tmpInputBuffer;
-  private Deserializer<MapWritable> tmpDeserializer;
   private MapWritable tmpOutputVal;
 
   private static final Log LOG = LogFactory.getLog(ReduceContextImpl.class.getName()); 
@@ -215,80 +214,85 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
   
   @Override
   public boolean nextKeyValue() throws IOException, InterruptedException {
-    boolean is_dummy = false;
+    boolean is_dummy = true;
 
-    if (!hasMore) {
-      key = null;
-      value = null;
-      return false;
-    }
-
-    firstValue = !nextKeyIsSame;
-
-    DataInputBuffer nextKey = input.getKey();
-    currentRawKey.set(nextKey.getData(), nextKey.getPosition(), 
-                      nextKey.getLength() - nextKey.getPosition());
-    buffer.reset(currentRawKey.getBytes(), 0, currentRawKey.getLength());
-    key = keyDeserializer.deserialize(key);
-
-    DataInputBuffer nextVal = input.getValue();
-    buffer.reset(nextVal.getData(), nextVal.getPosition(), nextVal.getLength()
-        - nextVal.getPosition());
-
-    // MARK: COS518 Edition 
-    if (!melbourneShuffleEnabled) {
-      // if melbourne shuffle disabled
-      // use the default value deserializer 
-      value = valueDeserializer.deserialize(value);
-    } else {
-      // otherwise, use MapWritable deserializer
-      // newvalue has type MapWritable <IntWritable, VALUEIN>
-      newvalue = newvalueDeserializer.deserialize(newvalue);
-      IntWritable validKey = new IntWritable(1);
-      if (newvalue.containsKey(validKey)) {
-        // if the record is valid, update value
-        value = (VALUEIN) newvalue.get(validKey);
-      } else {
-        // otherwise set is_dummy flag
-        is_dummy = true;
+    while (is_dummy) {
+      if (!hasMore) {
+        key = null;
+        value = null;
+        return false;
       }
-    }
+
+      firstValue = !nextKeyIsSame;
+
+      DataInputBuffer nextKey = input.getKey();
+      currentRawKey.set(nextKey.getData(), nextKey.getPosition(), 
+                        nextKey.getLength() - nextKey.getPosition());
+      buffer.reset(currentRawKey.getBytes(), 0, currentRawKey.getLength());
+      key = keyDeserializer.deserialize(key);
+
+      DataInputBuffer nextVal = input.getValue();
+      buffer.reset(nextVal.getData(), nextVal.getPosition(), nextVal.getLength()
+          - nextVal.getPosition());
+
+      // MARK: COS518 Edition 
+      if (!melbourneShuffleEnabled) {
+        // if melbourne shuffle disabled
+        // use the default value deserializer 
+        value = valueDeserializer.deserialize(value);
+        is_dummy = false;
+      } else {
+        // otherwise, use MapWritable deserializer
+        // newvalue has type MapWritable <IntWritable, VALUEIN>
+        newvalue = newvalueDeserializer.deserialize(newvalue);
+        IntWritable validKey = new IntWritable(1);
+        if (newvalue.containsKey(validKey)) {
+          // if the record is valid, update value
+          value = (VALUEIN) newvalue.get(validKey);
+          is_dummy = false;
+        } 
+        // else {
+        //   // otherwise set is_dummy flag
+        //   is_dummy = true;
+        // }
+      }
     // MARK: End
 
-    currentKeyLength = nextKey.getLength() - nextKey.getPosition();
-    currentValueLength = nextVal.getLength() - nextVal.getPosition();
+      currentKeyLength = nextKey.getLength() - nextKey.getPosition();
+      currentValueLength = nextVal.getLength() - nextVal.getPosition();
 
-    if (isMarked) {
-      // Note: nextVal here can be a MapWritable Object
-      // In next(), reading from backupStore will convert MapWritable to VALUEIN  
-      backupStore.write(nextKey, nextVal);
+      if (isMarked) {
+        // Note: nextVal here can be a MapWritable Object
+        // In next(), reading from backupStore will convert MapWritable to VALUEIN  
+        backupStore.write(nextKey, nextVal);
+      }
+
+      hasMore = input.next();
+      if (hasMore) { 
+        nextKey = input.getKey();
+        nextKeyIsSame = comparator.compare(currentRawKey.getBytes(), 0, 
+                                       currentRawKey.getLength(),
+                                       nextKey.getData(),
+                                       nextKey.getPosition(),
+                                       nextKey.getLength() - nextKey.getPosition()
+                                           ) == 0;
+      } else {
+        nextKeyIsSame = false;
+      }
     }
 
-    hasMore = input.next();
-    if (hasMore) { 
-      nextKey = input.getKey();
-      nextKeyIsSame = comparator.compare(currentRawKey.getBytes(), 0, 
-                                     currentRawKey.getLength(),
-                                     nextKey.getData(),
-                                     nextKey.getPosition(),
-                                     nextKey.getLength() - nextKey.getPosition()
-                                         ) == 0;
-    } else {
-      nextKeyIsSame = false;
-    }
 
-
-    // MARK: COS518 Edition
-    if (is_dummy) { 
-      // this is a dummy record
-      // recursively call nextKeyValue() until it finds a valid record or hits the end
-      // TODO: is the first record is dummy, should i update anything?
-      return nextKeyValue();
-    }    
+    // // MARK: COS518 Edition
+    // if (is_dummy) { 
+    //   // this is a dummy record
+    //   // recursively call nextKeyValue() until it finds a valid record or hits the end
+    //   // TODO: is the first record is dummy, should i update anything?
+    //   return nextKeyValue();
+    // }    
     // MARK: End
 
     inputValueCounter.increment(1); // increment the count for valid values 
-    findNextValidRecord(); // COS518 Modification: move to the next valid record if any
+    //findNextValidRecord(); // COS518 Modification: move to the next valid record if any
     return true;
   }
 
