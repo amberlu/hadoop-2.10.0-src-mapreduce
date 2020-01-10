@@ -93,7 +93,10 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
   private MapWritable newvalue;                       // current MapWritable value if melbourne shuffle enabled
   private Deserializer<MapWritable> newvalueDeserializer; // deserializer for MapWritable objects 
   private boolean melbourneShuffleEnabled = false;    // boolean indicating whether melbourne shuffle is enabled
-  
+  private Deserializer<MapWritable> tmpDeserializer;
+  private DataInputBuffer tmpInputBuffer;
+  private Deserializer<MapWritable> tmpDeserializer;
+  private MapWritable tmpOutputVal;
 
   private static final Log LOG = LogFactory.getLog(ReduceContextImpl.class.getName()); 
 
@@ -126,10 +129,13 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
       this.melbourneShuffleEnabled = true;
       this.newvalueDeserializer = serializationFactory.getDeserializer(MapWritable.class);
       this.newvalueDeserializer.open(buffer);
+
+      tmpDeserializer = serializationFactory.getDeserializer(MapWritable.class);
     } else {
       // otherwise, use the default for value type 
       this.valueDeserializer = serializationFactory.getDeserializer(valueClass);
       this.valueDeserializer.open(buffer);
+
     } 
     // MARK: End
 
@@ -162,15 +168,13 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
   // Given an input buffer for the record's value (of Type MapWritable)
   // check whether it corresponds to a dummy record or not
   public boolean isDummyRecord(DataInputBuffer inputVal) throws IOException, InterruptedException {
-    SerializationFactory tmpSerializationFactory = new SerializationFactory(conf);
-    DataInputBuffer inputBuffer = new DataInputBuffer();
-    Deserializer<MapWritable> deserializer = tmpSerializationFactory.getDeserializer(MapWritable.class);
-    deserializer.open(inputBuffer);
-    inputBuffer.reset(inputVal.getData(), inputVal.getPosition(), inputVal.getLength() - inputVal.getPosition());
+    tmpInputBuffer = new DataInputBuffer();
+    tmpDeserializer.open(tmpInputBuffer);
+    tmpInputBuffer.reset(inputVal.getData(), inputVal.getPosition(), inputVal.getLength() - inputVal.getPosition());
 
-    MapWritable outputVal = new MapWritable();
-    outputVal = deserializer.deserialize(outputVal);
-    if (outputVal.containsKey(new IntWritable(0))) {
+    tmpOutputVal = new MapWritable();
+    tmpOutputVal = tmpDeserializer.deserialize(tmpOutputVal);
+    if (tmpOutputVal.containsKey(new IntWritable(0))) {
       return true;
     }
     return false;
@@ -179,24 +183,27 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
   // Find the next valid record 
   // And update certain global fields: hasMore, nextKeyIsSame
   public void findNextValidRecord() throws IOException, InterruptedException{
-    if (hasMore) {
-      if (isDummyRecord(input.getValue())) { // if next is a dummy record
-        hasMore = input.next(); // move on to the next item in input 
-        findNextValidRecord();
-      } else { // next is a valid record
-        DataInputBuffer inputKey = input.getKey();
-        nextKeyIsSame = comparator.compare(currentRawKey.getBytes(), 0, // update the field nextKeyIsSame
-                                   currentRawKey.getLength(),
-                                   inputKey.getData(),
-                                   inputKey.getPosition(),
-                                   inputKey.getLength() - inputKey.getPosition()
-                                       ) == 0;
+    if (melbourneShuffleEnabled) {
+      if (hasMore) {
+        if (isDummyRecord(input.getValue())) { // if next is a dummy record
+          hasMore = input.next(); // move on to the next item in input 
+          findNextValidRecord();
+        } else { // next is a valid record
+          DataInputBuffer inputKey = input.getKey();
+          nextKeyIsSame = comparator.compare(currentRawKey.getBytes(), 0, // update the field nextKeyIsSame
+                                     currentRawKey.getLength(),
+                                     inputKey.getData(),
+                                     inputKey.getPosition(),
+                                     inputKey.getLength() - inputKey.getPosition()
+                                         ) == 0;
+          return;
+        }
+      } else { // no more records to process
+        nextKeyIsSame = false;
         return;
       }
-    } else { // no more records to process
-      nextKeyIsSame = false;
-      return;
     }
+    return;
   }
   // Mark: End
 

@@ -704,6 +704,7 @@ public class MapTask extends Task {
     private final MapOutputCollector<K,V> collector;
     private final org.apache.hadoop.mapreduce.Partitioner<K,V> partitioner;
     private final int partitions;
+    private Random random; // Jianan added 
 
     @SuppressWarnings("unchecked")
     NewOutputCollector(org.apache.hadoop.mapreduce.JobContext jobContext,
@@ -715,19 +716,19 @@ public class MapTask extends Task {
       partitions = jobContext.getNumReduceTasks();
 
       if (partitions > 1) {
-        LOG.info("Jianan: MapTask.NewOutputCollector.init() partitions > 1");
+        //LOG.info("Jianan: MapTask.NewOutputCollector.init() partitions > 1");
 
         // MARK: COS518 Edition 
         // get melbourne key from configuration if any
         final int melbournekey = conf.getMelbourneKey();
         if (melbournekey == 0) {
-          LOG.info("Jianan: melbourne no key");
+          //LOG.info("Jianan: melbourne no key");
           partitioner = (org.apache.hadoop.mapreduce.Partitioner<K,V>)
           ReflectionUtils.newInstance(jobContext.getPartitionerClass(), job);
         } else {
           // if there is nonzero melbourne key
           // partitioner uses melbourne shuffle to assign partitions for <K,V> pairs
-          LOG.info("Jianan: melbourne key is " + melbournekey);
+          //LOG.info("Jianan: melbourne key is " + melbournekey);
           partitioner = new org.apache.hadoop.mapreduce.Partitioner<K,V>() {
             
             /**
@@ -740,8 +741,8 @@ public class MapTask extends Task {
              */ 
             private int[] PRNG(int seed) {
               int[] result = new int[2];
-
-              Random random = new Random();
+              //Random random = new Random();
+              random = new Random(); // Jianan added 
               // given a specific seed
               random.setSeed(Long.valueOf(seed)); 
               // the next value is deterministic
@@ -768,21 +769,21 @@ public class MapTask extends Task {
              * @return an pseudorandom int  
              */ 
             private int PRF(int secret_key, K key) {
-
               // use hashCode to ensure all keys will have the same input length
               int hashed_input = key.hashCode(); 
               // convert input to a bit array 
-              String final_input = Integer.toBinaryString(hashed_input);
-
+              // String final_input = Integer.toBinaryString(hashed_input);
               // initialize the seed 
               int seed = secret_key;
               // initialize output 
               int output = hashed_input; 
 
-              for (int i = 0; i < final_input.length(); i++) {
+              // for (int i = 0; i < final_input.length(); i++) {
+              for (int i = 0; i < 64; i++) {
                 int[] result = PRNG(seed);
 
-                if (final_input.charAt(i) == '0') {
+                // if (final_input.charAt(i) == '0') {
+                if ((hashed_input % 2) == 0) {
                   // if the i-th bit is 0
                   // pick the first pseudorandom number
                   // update seed 
@@ -795,8 +796,8 @@ public class MapTask extends Task {
                   output = result[1];
                   seed = result[1];
                 }
+                hashed_input /= 2;
               }
-
               return output;
             }
 
@@ -809,22 +810,23 @@ public class MapTask extends Task {
              */ 
             @Override
             public int getPartition(K key, V value, int numPartitions) {
-              int secret_key = melbournekey;
-              int output = PRF(secret_key, key);
+              // int secret_key = melbournekey;
+              // int output = PRF(secret_key, key);
 
-              LOG.info("Jianan: mapreduce.melbournePartition.getPartition: key is " + key.toString() + "; partition # is " + (output & Integer.MAX_VALUE)); // Jianan
-              return (output & Integer.MAX_VALUE) % partitions;
+              // LOG.info("Jianan: mapreduce.melbournePartition.getPartition: key is " + key.toString() + "; partition # is " + (output & Integer.MAX_VALUE)); // Jianan              
+              // return (output & Integer.MAX_VALUE) % partitions;
+              return (PRF(melbournekey, key) & Integer.MAX_VALUE) % partitions;
             }
           };
         }
         // MARK: End 
 
       } else {
-        LOG.info("Jianan: MapTask.NewOutputCollector.init() partitions <= 1");
+        //LOG.info("Jianan: MapTask.NewOutputCollector.init() partitions <= 1");
         partitioner = new org.apache.hadoop.mapreduce.Partitioner<K,V>() {
           @Override
           public int getPartition(K key, V value, int numPartitions) {
-            LOG.info("Jianan: MapTask.NewOutputCollector.init() partitions <=1 getPartition method overriden: partition #" + (partitions - 1));
+            //LOG.info("Jianan: MapTask.NewOutputCollector.init() partitions <=1 getPartition method overriden: partition #" + (partitions - 1));
             return partitions - 1;
           }
         };
@@ -835,7 +837,7 @@ public class MapTask extends Task {
 
     @Override
     public void write(K key, V value) throws IOException, InterruptedException {
-      LOG.info("Jianan: MapTask.NewOutputCollector.write() begins");
+      //LOG.info("Jianan: MapTask.NewOutputCollector.write() begins");
 
       collector.collect(key, value,
                         partitioner.getPartition(key, value, partitions));
@@ -1241,7 +1243,7 @@ public class MapTask extends Task {
      * Serialize dummy records to intermediate storage.
      */
     public void collectDummies() throws IOException {
-      LOG.info("Jianan: MapOutputBuffer.collectDummy() begins");
+      //LOG.info("Jianan: MapOutputBuffer.collectDummy() begins");
       isDummy = true;
       // max is the size of the most popularized partition
       int max = Collections.max(partitionCounters);
@@ -1265,7 +1267,7 @@ public class MapTask extends Task {
      */
     public synchronized void collect(K key, V value, final int partition
                                      ) throws IOException {
-      LOG.info("Jianan: MapOutputBuffer.collect() begins");
+      //LOG.info("Jianan: MapOutputBuffer.collect() begins");
       
 
       reporter.progress();
@@ -1703,6 +1705,10 @@ public class MapTask extends Task {
       // MARK: End
 
       LOG.info("Starting flush of map output");
+<<<<<<< HEAD
+=======
+      //LOG.info("Jianan: flush() begins"); 
+>>>>>>> prf
       if (kvbuffer == null) {
         LOG.info("kvbuffer is null. Skipping flush.");
         return;
@@ -1753,19 +1759,18 @@ public class MapTask extends Task {
       }
       // release sort buffer before the merge
       kvbuffer = null;
-      LOG.info("Jianan: mergeParts() begins");
+      //LOG.info("Jianan: mergeParts() begins");
       mergeParts();
       Path outputPath = mapOutputFile.getOutputFile();
       fileOutputByteCounter.increment(rfs.getFileStatus(outputPath).getLen());
 
-      // MARK: COS518 Edition 
-      // just for testing, read the final merged output file 
-      LOG.info("Jianan: reading from the final merged output file " + outputPath.toString());
-      FSDataInputStream inputStream = rfs.open(outputPath);
-      byte[] inputBytes = new byte[inputStream.available()];
-      inputStream.read(inputBytes);
-      LOG.info("Jianan: file content is: " + new String(inputBytes));
-      // MARK: End
+
+      // COS518 Edition : just for testing, read the final merged output file 
+      // LOG.info("Jianan: reading from the final merged output file " + outputPath.toString());
+      // FSDataInputStream inputStream = rfs.open(outputPath);
+      // byte[] inputBytes = new byte[inputStream.available()];
+      // inputStream.read(inputBytes);
+      // LOG.info("Jianan: file content is: " + new String(inputBytes));
 
     }
 
@@ -1785,7 +1790,7 @@ public class MapTask extends Task {
             }
             try {
               spillLock.unlock();
-              LOG.info("Jianan: SpillThread.run() begins");
+              //LOG.info("Jianan: SpillThread.run() begins");
               sortAndSpill();
             } catch (Throwable t) {
               sortSpillException = t;
@@ -1844,7 +1849,7 @@ public class MapTask extends Task {
       FSDataOutputStream out = null;
       FSDataOutputStream partitionOut = null;
       try {
-        LOG.info("Jianan: sortAndSpill() begins");
+        //LOG.info("Jianan: sortAndSpill() begins");
         // create spill file
         final SpillRecord spillRec = new SpillRecord(partitions);
         final Path filename =
@@ -1897,7 +1902,7 @@ public class MapTask extends Task {
                 RawKeyValueIterator kvIter =
                   new MRResultIterator(spstart, spindex);
                 combinerRunner.combine(kvIter, combineCollector);
-                LOG.info("Jianan: SpillThread.sortAndSpill() runs combiner");
+                //LOG.info("Jianan: SpillThread.sortAndSpill() runs combiner");
               }
 
             }
@@ -2093,7 +2098,7 @@ public class MapTask extends Task {
         finalOutFileSize += rfs.getFileStatus(filename[i]).getLen(); // sum over the size of each spill file
       }
       if (numSpills == 1) { 
-        LOG.info("Jianan: # of spills is 1");
+        //LOG.info("Jianan: # of spills is 1");
         sameVolRename(filename[0],
             mapOutputFile.getOutputFileForWriteInVolume(filename[0]));
         if (indexCacheList.size() == 0) { 
@@ -2128,7 +2133,7 @@ public class MapTask extends Task {
 
       if (numSpills == 0) {
         //create dummy files
-        LOG.info("Jianan: # of spills is 0");
+        //LOG.info("Jianan: # of spills is 0");
         IndexRecord rec = new IndexRecord();
         SpillRecord sr = new SpillRecord(partitions);
         try {
@@ -2159,7 +2164,7 @@ public class MapTask extends Task {
         return;
       }
       {
-        LOG.info("Jianan: # of spill is > 0.");
+        //LOG.info("Jianan: # of spill is > 0.");
         sortPhase.addPhases(partitions); // Divide sort phase into sub-phases
         
         IndexRecord rec = new IndexRecord();
@@ -2228,14 +2233,13 @@ public class MapTask extends Task {
         }
         spillRec.writeToFile(finalIndexFile, job);
 
-        // MARK: COS518 Edition
-        // for testing, reading from final index file
-        LOG.info("Jianan: reading from final index file " + finalIndexFile.toString());
-        FSDataInputStream inputStream = rfs.open(finalIndexFile);
-        byte[] inputBytes = new byte[inputStream.available()];
-        inputStream.read(inputBytes);
-        LOG.info("Jianan: file content is: " + new String(inputBytes));
-        // MARK: End
+
+        // COS518 Edition: for testing, reading from final index file
+        // LOG.info("Jianan: reading from final index file " + finalIndexFile.toString());
+        // FSDataInputStream inputStream = rfs.open(finalIndexFile);
+        // byte[] inputBytes = new byte[inputStream.available()];
+        // inputStream.read(inputBytes);
+        // LOG.info("Jianan: file content is: " + new String(inputBytes));
         
 
         finalOut.close();
