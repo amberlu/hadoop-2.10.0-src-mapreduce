@@ -298,42 +298,26 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
     while (hasMore) {
       // read in the next key 
       peakedNextKey = input.getKey();
-      // LOG.info("Jianan: peak(): nextKey = " + nextKey.getData());
-      // LOG.info("Jianan: peaked(): before set currentRawKey = " + currentRawKey.toString());
       tmpCurrentRawKey.set(peakedNextKey.getData(), peakedNextKey.getPosition(), 
                         peakedNextKey.getLength() - peakedNextKey.getPosition());
-      // LOG.info("Jianan: peaked(): after set currentRawKey = " + currentRawKey.toString());
-      // LOG.info("Jianan: peaked(): before reset buffer = " + buffer.getData());
       buffer.reset(tmpCurrentRawKey.getBytes(), 0, tmpCurrentRawKey.getLength());
-      // LOG.info("Jianan: peaked(): after reset buffer = " + buffer.getData());
-      //nextKeyRead = keyDeserializer.deserialize(key);
-      // deserializer might change the value of key, thus keeping a copy of its old value 
-      //KEYIN keyCopy = key;
+      
       keyCopy = WritableUtils.clone((Writable) key, conf);
-      // LOG.info("Jianan: peak(): before deserialize key = " + key + "; nextKeyRead = " + nextKeyRead + "; keyCopy = " + keyCopy);
       nextKeyRead = keyDeserializer.deserialize(key);
       key = (KEYIN) keyCopy;
-      // LOG.info("Jianan: peak(): after deserialize key = " + key + "; nextKeyRead = " + nextKeyRead + "; keyCopy = " + keyCopy);
-      // nextKeyRead = key;
-      // key = oldKey;
 
-      // read in the next value
       peakedNextVal = input.getValue();
       buffer.reset(peakedNextVal.getData(), peakedNextVal.getPosition(), peakedNextVal.getLength()
           - peakedNextVal.getPosition());
 
       newValueCopy = WritableUtils.clone((MapWritable) newvalue, conf);
-      //MapWritable newValueCopy = newvalue;
-      //MapWritable oldNewValue = newvalue;
       nextValueRead = newvalueDeserializer.deserialize(newvalue);
       newvalue = newValueCopy;
 
       hasPeaked = true;
-      //LOG.info("Jianan: peak(): nextKeyRead = " + nextKeyRead + "; nextValueRead = " + nextValueRead + "; hasPeaked = true");
       if (nextValueRead.containsKey(new IntWritable(1))) {
         System.out.println("Jianan: peak(): finds the next valid record, returns, nextValueRead = " + nextValueRead);
         break;
-        //return;
       } else {
         numDummyRecords ++;
       }
@@ -371,11 +355,7 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
 
   public boolean nextValidKeyValue() throws IOException, InterruptedException {
     boolean is_dummy = true;
-    // DataInputBuffer nextKey;
-    // DataInputBuffer nextVal;
 
-
-    //LOG.info("Jianan: enters nextValidKeyValue()");
     while (is_dummy) {
       if (!hasMore) {
         System.out.println("Jianan: nextValidKeyValue() returns false; key = null; value = null");
