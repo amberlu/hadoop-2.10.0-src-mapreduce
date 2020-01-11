@@ -227,7 +227,6 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
   public void peak() throws IOException, InterruptedException {
 
     // LOG.info("Jianan: enters peak()");
-
     while (hasMore) {
       // read in the next key 
       peakedNextKey = input.getKey();
@@ -238,7 +237,6 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
       buffer.reset(currentRawKey.getBytes(), 0, currentRawKey.getLength());
       
       keyCopy = WritableUtils.clone((Writable) key, conf);
-      
       nextKeyRead = keyDeserializer.deserialize(key);
       key = (KEYIN) keyCopy;
       
