@@ -177,7 +177,8 @@ public class Reducer<KEYIN,VALUEIN,KEYOUT,VALUEOUT> {
     setup(context);
     try {
       while (context.nextKey()) {
-        
+        //LOG.info("Jianan: Reducer: after nextKey() is called");
+        //LOG.info("Jianan: Reducer: before calling reduce(): key = " + context.getCurrentKey());
         reduce(context.getCurrentKey(), context.getValues(), context);
         
         Iterator<VALUEIN> iter = context.getValues().iterator();

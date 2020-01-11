@@ -48,8 +48,10 @@ import org.apache.hadoop.util.Progressable;
 import java.util.*; 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.MapWritable; 
 import org.apache.hadoop.io.IntWritable; 
+import org.apache.hadoop.io.WritableUtils;
 
 
 /**
@@ -96,6 +98,15 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
   private Deserializer<MapWritable> tmpDeserializer;
   private DataInputBuffer tmpInputBuffer;
   private MapWritable tmpOutputVal;
+  private boolean hasPeaked;
+  private KEYIN nextKeyRead;
+  private MapWritable nextValueRead;
+
+  private DataInputBuffer peakedNextKey;
+  private DataInputBuffer peakedNextVal;
+  private Writable keyCopy;
+  private MapWritable newValueCopy;
+  private Integer numDummyRecords = 0;
 
   private static final Log LOG = LogFactory.getLog(ReduceContextImpl.class.getName()); 
 
@@ -128,8 +139,8 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
       this.melbourneShuffleEnabled = true;
       this.newvalueDeserializer = serializationFactory.getDeserializer(MapWritable.class);
       this.newvalueDeserializer.open(buffer);
-
-      tmpDeserializer = serializationFactory.getDeserializer(MapWritable.class);
+      this.hasPeaked = false;
+      this.tmpDeserializer = serializationFactory.getDeserializer(MapWritable.class);
     } else {
       // otherwise, use the default for value type 
       this.valueDeserializer = serializationFactory.getDeserializer(valueClass);
@@ -149,21 +160,27 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
 
   /** Start processing next unique key. */
   public boolean nextKey() throws IOException,InterruptedException {
+    //LOG.info("Jianan: enters nextKey()");
     while (hasMore && nextKeyIsSame) {
+      //LOG.info("Jianan: nextKey(): while hasMore and nextKeyIsSame, enters nextValidKeyValue()");
       nextKeyValue();
     }
     if (hasMore) {
       if (inputKeyCounter != null) {
         inputKeyCounter.increment(1);
       }
+      //LOG.info("Jianan: nextKey(): has more and next key is not same, enters nextValidKeyValue()");
+      //LOG.info("Jianan: nextKey() returns what nextValidKeyValue() returns");
       return nextKeyValue();
     } else {
+      //LOG.info("Jianan: nextKey() retunrs false");
+      //LOG.info("Jianan: total number of dummy records = " + numDummyRecords);
       return false;
     }
   }
 
-  // // Mark: COS518 Edition
 
+  // Mark: COS518 Edition
   // // Given an input buffer for the record's value (of Type MapWritable)
   // // check whether it corresponds to a dummy record or not
   // public boolean isDummyRecord(DataInputBuffer inputVal) throws IOException, InterruptedException {
@@ -207,54 +224,169 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
   // // Mark: End
 
 
-  /**
-   * Advance to the next key/value pair. 
-   */
-  // COS518 Modification: advance to the next valid key/value pair
-  
-  @Override
-  public boolean nextKeyValue() throws IOException, InterruptedException {
+  //This function is invoked only when melbourne shuffle is enabled 
+  public void peak() throws IOException, InterruptedException {
+
+    // LOG.info("Jianan: enters peak()");
+    while (hasMore) {
+      // read in the next key 
+      peakedNextKey = input.getKey();
+
+      currentRawKey.set(peakedNextKey.getData(), peakedNextKey.getPosition(), 
+                        peakedNextKey.getLength() - peakedNextKey.getPosition());
+      
+      buffer.reset(currentRawKey.getBytes(), 0, currentRawKey.getLength());
+      
+      keyCopy = WritableUtils.clone((Writable) key, conf);
+      nextKeyRead = keyDeserializer.deserialize(key);
+      key = (KEYIN) keyCopy;
+      
+
+      // read in the next value
+      peakedNextVal = input.getValue();
+      buffer.reset(peakedNextVal.getData(), peakedNextVal.getPosition(), peakedNextVal.getLength()
+          - peakedNextVal.getPosition());
+
+      newValueCopy = WritableUtils.clone((MapWritable) newvalue, conf);
+      nextValueRead = newvalueDeserializer.deserialize(newvalue);
+      newvalue = newValueCopy;
+
+      hasPeaked = true;
+      if (nextValueRead.containsKey(new IntWritable(1))) {
+        //System.out.println("Jianan: peak(): finds the next valid record, returns, nextValueRead = " + nextValueRead);
+        return;
+      } else {
+        numDummyRecords ++;
+      }
+
+      // otherwise, move to next record
+      // update hasMore and NextKeyIsSame
+      hasMore = input.next();
+      peakedNextKey = input.getKey();
+      nextKeyIsSame = comparator.compare(currentRawKey.getBytes(), 0, 
+                                       currentRawKey.getLength(),
+                                       peakedNextKey.getData(),
+                                       peakedNextKey.getPosition(),
+                                       peakedNextKey.getLength() - peakedNextKey.getPosition()
+                                           ) == 0;
+      firstValue = !nextKeyIsSame;
+    }
+    // if nothing more, update nextKeyIsSame 
+    nextKeyIsSame = false;
+    firstValue = !nextKeyIsSame;
+    return;
+  }
+
+
+  //   public void peak() throws IOException, InterruptedException {
+
+  //   // LOG.info("Jianan: enters peak()");
+  //   BytesWritable tmpCurrentRawKey = new BytesWritable();
+
+  //   while (hasMore) {
+  //     // read in the next key 
+  //     peakedNextKey = input.getKey();
+  //     tmpCurrentRawKey.set(peakedNextKey.getData(), peakedNextKey.getPosition(), 
+  //                       peakedNextKey.getLength() - peakedNextKey.getPosition());
+  //     buffer.reset(tmpCurrentRawKey.getBytes(), 0, tmpCurrentRawKey.getLength());
+      
+  //     keyCopy = WritableUtils.clone((Writable) key, conf);
+  //     nextKeyRead = keyDeserializer.deserialize(key);
+  //     key = (KEYIN) keyCopy;
+
+  //     peakedNextVal = input.getValue();
+  //     buffer.reset(peakedNextVal.getData(), peakedNextVal.getPosition(), peakedNextVal.getLength()
+  //         - peakedNextVal.getPosition());
+
+  //     newValueCopy = WritableUtils.clone((MapWritable) newvalue, conf);
+  //     nextValueRead = newvalueDeserializer.deserialize(newvalue);
+  //     newvalue = newValueCopy;
+
+  //     hasPeaked = true;
+  //     if (nextValueRead.containsKey(new IntWritable(1))) {
+  //       return;
+  //     } else {
+  //       numDummyRecords ++;
+  //     }
+
+  //     // otherwise, move to next record
+  //     // update hasMore and NextKeyIsSame
+  //     hasMore = input.next();
+  //     peakedNextKey = input.getKey();
+  //     nextKeyIsSame = comparator.compare(currentRawKey.getBytes(), 0, 
+  //                                      currentRawKey.getLength(),
+  //                                      peakedNextKey.getData(),
+  //                                      peakedNextKey.getPosition(),
+  //                                      peakedNextKey.getLength() - peakedNextKey.getPosition()
+  //                                          ) == 0;
+  //     firstValue = !nextKeyIsSame;
+  //     //System.out.println("Jianan: peak(): goes to the next element; hasMore = " + hasMore + "; NextKeyIsSame = " + nextKeyIsSame + "firstValue = " + firstValue);
+  //   }
+
+  //   if (!hasMore) {
+  //     // if nothing more, update nextKeyIsSame 
+  //     nextKeyIsSame = false;
+  //     firstValue = !nextKeyIsSame;
+  //     System.out.println("Jianan: peak() returns; NextKeyIsSame = false; firstValue = true; no more next elements");
+  //   } else {
+  //     peakedNextKey = input.getKey();
+  //     nextKeyIsSame = comparator.compare(currentRawKey.getBytes(), 0, 
+  //                                      currentRawKey.getLength(),
+  //                                      peakedNextKey.getData(),
+  //                                      peakedNextKey.getPosition(),
+  //                                      peakedNextKey.getLength() - peakedNextKey.getPosition()
+  //                                          ) == 0;
+  //     firstValue = !nextKeyIsSame;
+  //   }
+  // }
+
+  public boolean nextValidKeyValue() throws IOException, InterruptedException {
     boolean is_dummy = true;
 
     while (is_dummy) {
       if (!hasMore) {
+        //System.out.println("Jianan: nextValidKeyValue() returns false; key = null; value = null");
         key = null;
         value = null;
         return false;
       }
 
+      //System.out.println("Jianan: nextValidKeyValue(): firstValue = " + firstValue);
       firstValue = !nextKeyIsSame;
 
       DataInputBuffer nextKey = input.getKey();
-      currentRawKey.set(nextKey.getData(), nextKey.getPosition(), 
-                        nextKey.getLength() - nextKey.getPosition());
-      buffer.reset(currentRawKey.getBytes(), 0, currentRawKey.getLength());
-      key = keyDeserializer.deserialize(key);
-
       DataInputBuffer nextVal = input.getValue();
-      buffer.reset(nextVal.getData(), nextVal.getPosition(), nextVal.getLength()
-          - nextVal.getPosition());
-
-      // MARK: COS518 Edition 
-      if (!melbourneShuffleEnabled) {
-        // if melbourne shuffle disabled
-        // use the default value deserializer 
-        value = valueDeserializer.deserialize(value);
-        is_dummy = false;
-      } else {
+      if (!hasPeaked) {
+        //LOG.info("Jianan: nextValidKeyValue(): hasPeaked = false, use the deserialize");
+        currentRawKey.set(nextKey.getData(), nextKey.getPosition(), 
+                          nextKey.getLength() - nextKey.getPosition());
+        buffer.reset(currentRawKey.getBytes(), 0, currentRawKey.getLength());
+        key = keyDeserializer.deserialize(key);
+        
+        buffer.reset(nextVal.getData(), nextVal.getPosition(), nextVal.getLength()
+            - nextVal.getPosition());
         // otherwise, use MapWritable deserializer
         // newvalue has type MapWritable <IntWritable, VALUEIN>
         newvalue = newvalueDeserializer.deserialize(newvalue);
-        IntWritable validKey = new IntWritable(1);
-        if (newvalue.containsKey(validKey)) {
-          // if the record is valid, update value
-          value = (VALUEIN) newvalue.get(validKey);
-          is_dummy = false;
-        } 
-        // else {
-        //   // otherwise set is_dummy flag
-        //   is_dummy = true;
-        // }
+        //LOG.info("Jianan: nextValidKeyValue(): key = " + key + "; value = " + newvalue );
+      } else {
+        //System.out.println("Jianan: nextValidKeyValue(): hasPeaked = true; key = nextKeyRead = " + nextKeyRead + "; value = nextValueRead = " + nextValueRead);
+        key = nextKeyRead;
+        newvalue = nextValueRead;
+        hasPeaked = false;
+        //System.out.println("Jianan: nextValidKeyValue(): hasPeaked now sets to false");
+      }
+
+      IntWritable validKey = new IntWritable(1);
+      if (newvalue.containsKey(validKey)) {
+        // if the record is valid, update value
+        value = (VALUEIN) newvalue.get(validKey);
+        //System.out.println("Jianan: nextValidKeyValue(): valid record");
+        is_dummy = false;
+
+      }  else {
+        numDummyRecords ++;
+        // LOG.info("Jianan: nextValidKeyValue(): invalid record");
       }
     // MARK: End
 
@@ -263,8 +395,10 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
 
       if (isMarked) {
         // Note: nextVal here can be a MapWritable Object
-        // In next(), reading from backupStore will convert MapWritable to VALUEIN  
-        backupStore.write(nextKey, nextVal);
+        // In next(), reading from backupStore will convert MapWritable to VALUEIN 
+        if (!is_dummy) { 
+          backupStore.write(nextKey, nextVal);
+        }
       }
 
       hasMore = input.next();
@@ -279,7 +413,148 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
       } else {
         nextKeyIsSame = false;
       }
+      //System.out.println("Jianan: nextValidKeyValue(): hasMore = " + hasMore + "; nextKeyIsSame = " + nextKeyIsSame + "; firstValue = " + firstValue);
     }
+
+    //System.out.println("Jianan: nextValidKeyValue(): hasMore = " + hasMore + "; nextKeyIsSame = " + nextKeyIsSame + "; firstValue = " + firstValue);
+    // now we hit a valid record whose key = 'key' and value = 'value'
+    inputValueCounter.increment(1); // increment the count for valid values 
+    // now we perform a peak function to move markers to the next valid record if any
+
+    // before peak(), firstValue is updated to check if this current valid record has a different key as the next element, which can a dummy
+    if (hasMore) {
+      peak(); 
+      //System.out.println("Jianan: after peak(): hasMore = " + hasMore + "; nextKeyIsSame = " + nextKeyIsSame + "; firstValue = " + firstValue);
+      //LOG.info("peak only when there are more records");
+    }
+    //findNextValidRecord(); // COS518 Modification: move to the next valid record if any
+    //LOG.info("Jianan: nextValidKeyValue() returns true");
+    
+    return true;
+  }
+
+  /**
+   * Advance to the next key/value pair. 
+   */
+  // COS518 Modification: advance to the next valid key/value pair
+  
+  @Override
+  public boolean nextKeyValue() throws IOException, InterruptedException {
+    if (melbourneShuffleEnabled) {
+      return nextValidKeyValue();
+    }
+
+
+
+    if (!hasMore) {
+      key = null;
+      value = null;
+      return false;
+    }
+
+    firstValue = !nextKeyIsSame;
+
+    DataInputBuffer nextKey = input.getKey();
+    currentRawKey.set(nextKey.getData(), nextKey.getPosition(), 
+                      nextKey.getLength() - nextKey.getPosition());
+    buffer.reset(currentRawKey.getBytes(), 0, currentRawKey.getLength());
+    key = keyDeserializer.deserialize(key);
+
+    DataInputBuffer nextVal = input.getValue();
+    buffer.reset(nextVal.getData(), nextVal.getPosition(), nextVal.getLength()
+        - nextVal.getPosition());
+
+    value = valueDeserializer.deserialize(value);
+    
+
+    currentKeyLength = nextKey.getLength() - nextKey.getPosition();
+    currentValueLength = nextVal.getLength() - nextVal.getPosition();
+
+    if (isMarked) { 
+      backupStore.write(nextKey, nextVal);
+    }
+
+    hasMore = input.next();
+    if (hasMore) { 
+      nextKey = input.getKey();
+      nextKeyIsSame = comparator.compare(currentRawKey.getBytes(), 0, 
+                                     currentRawKey.getLength(),
+                                     nextKey.getData(),
+                                     nextKey.getPosition(),
+                                     nextKey.getLength() - nextKey.getPosition()
+                                         ) == 0;
+    } else {
+      nextKeyIsSame = false;
+    }
+
+
+
+    // boolean is_dummy = true;
+
+    // while (is_dummy) {
+    //   if (!hasMore) {
+    //     key = null;
+    //     value = null;
+    //     return false;
+    //   }
+
+    //   firstValue = !nextKeyIsSame;
+
+    //   DataInputBuffer nextKey = input.getKey();
+    //   currentRawKey.set(nextKey.getData(), nextKey.getPosition(), 
+    //                     nextKey.getLength() - nextKey.getPosition());
+    //   buffer.reset(currentRawKey.getBytes(), 0, currentRawKey.getLength());
+    //   key = keyDeserializer.deserialize(key);
+
+    //   DataInputBuffer nextVal = input.getValue();
+    //   buffer.reset(nextVal.getData(), nextVal.getPosition(), nextVal.getLength()
+    //       - nextVal.getPosition());
+
+    //   // MARK: COS518 Edition 
+    //   if (!melbourneShuffleEnabled) {
+    //     // if melbourne shuffle disabled
+    //     // use the default value deserializer 
+    //     value = valueDeserializer.deserialize(value);
+    //     is_dummy = false;
+    //   } else {
+    //     // otherwise, use MapWritable deserializer
+    //     // newvalue has type MapWritable <IntWritable, VALUEIN>
+    //     newvalue = newvalueDeserializer.deserialize(newvalue);
+    //     IntWritable validKey = new IntWritable(1);
+    //     if (newvalue.containsKey(validKey)) {
+    //       // if the record is valid, update value
+    //       value = (VALUEIN) newvalue.get(validKey);
+    //       is_dummy = false;
+    //     } 
+    //     // else {
+    //     //   // otherwise set is_dummy flag
+    //     //   is_dummy = true;
+    //     // }
+    //   }
+    // // MARK: End
+
+    //   currentKeyLength = nextKey.getLength() - nextKey.getPosition();
+    //   currentValueLength = nextVal.getLength() - nextVal.getPosition();
+
+    //   if (isMarked) {
+    //     // Note: nextVal here can be a MapWritable Object
+    //     // In next(), reading from backupStore will convert MapWritable to VALUEIN  
+    //     backupStore.write(nextKey, nextVal);
+    //   }
+
+    //   hasMore = input.next();
+    //   if (hasMore) { 
+    //     nextKey = input.getKey();
+    //     nextKeyIsSame = comparator.compare(currentRawKey.getBytes(), 0, 
+    //                                    currentRawKey.getLength(),
+    //                                    nextKey.getData(),
+    //                                    nextKey.getPosition(),
+    //                                    nextKey.getLength() - nextKey.getPosition()
+    //                                        ) == 0;
+    //   } else {
+    //     nextKeyIsSame = false;
+    //   }
+    // }
 
 
     // // MARK: COS518 Edition
@@ -291,17 +566,18 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
     // }    
     // MARK: End
 
-    inputValueCounter.increment(1); // increment the count for valid values 
-    //findNextValidRecord(); // COS518 Modification: move to the next valid record if any
+    inputValueCounter.increment(1); 
     return true;
   }
 
   public KEYIN getCurrentKey() {
+    //LOG.info("Jianan: getCurrentKey() returns key = " + key);
     return key;
   }
 
   @Override
   public VALUEIN getCurrentValue() {
+    //LOG.info("Jianan: getCurrentValue() returns value = " + value);
     return value;
   }
   
@@ -324,6 +600,8 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
         e.printStackTrace();
         throw new RuntimeException("hasNext failed", e);
       }
+      //System.out.println("Jianan: hasNext(): key = " + key + "; firstValue = " + firstValue + "; nextKeyIsSame = " + nextKeyIsSame);
+      //LOG.info("Jianan: hasNext(): current key = " + key);
       return firstValue || nextKeyIsSame;
     }
 
@@ -336,26 +614,28 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
             DataInputBuffer next = backupStore.nextValue(); 
             buffer.reset(next.getData(), next.getPosition(), next.getLength()
                 - next.getPosition());
+
+            value = valueDeserializer.deserialize(value);
             
-            // MARK: COS518 Edition 
-            // TODO: update this 
-            // value = valueDeserializer.deserialize(value);
-            if (!melbourneShuffleEnabled) { 
-              // if melbourne shuffle disabled
-              // use the default value deserializer for VALUEIN class 
-              value = valueDeserializer.deserialize(value);
-            } else { 
-              // otherwise, use MapWritable deserializer
-              newvalue = newvalueDeserializer.deserialize(newvalue);
-              IntWritable validKey = new IntWritable(1);
-              if (newvalue.containsKey(validKey)) { 
-                // if the record is valid, update value
-                value = (VALUEIN) newvalue.get(validKey);
-              } else {
-                // otherwise, skip this dummy record and continue
-                next();
-              }
-            }
+            // // MARK: COS518 Edition 
+            // // TODO: update this 
+            // // value = valueDeserializer.deserialize(value);
+            // if (!melbourneShuffleEnabled) { 
+            //   // if melbourne shuffle disabled
+            //   // use the default value deserializer for VALUEIN class 
+            //   value = valueDeserializer.deserialize(value);
+            // } else { 
+            //   // otherwise, use MapWritable deserializer
+            //   newvalue = newvalueDeserializer.deserialize(newvalue);
+            //   IntWritable validKey = new IntWritable(1);
+            //   if (newvalue.containsKey(validKey)) { 
+            //     // if the record is valid, update value
+            //     value = (VALUEIN) newvalue.get(validKey);
+            //   } else {
+            //     // otherwise, skip this dummy record and continue
+            //     next();
+            //   }
+            // }
             // MARK: End
 
             return value;
@@ -373,7 +653,10 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
         }
       } 
 
+      //LOG.info("Jianan: enters next()");
       if (firstValue) {
+        //
+        System.out.println("Jianan: next(): firstValue for key = " + key + "; value = " + value + "; firstValue now = false");
         firstValue = false;
         return value;
       }
@@ -384,7 +667,10 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
       }
       // otherwise, go to the next key/value pair
       try {
+        //LOG.info("Jianan: next(): enters nextValidKeyValue()");
         nextKeyValue();
+        //System.out.println("Jianan: next(): key = " + key + "; value = " + value + "; firstValue = " + firstValue + "; nextKeyIsSame = " + nextKeyIsSame);
+        //LOG.info("Jianan: next(): returns value = " + value);
         return value;
         
       } catch (IOException ie) {
