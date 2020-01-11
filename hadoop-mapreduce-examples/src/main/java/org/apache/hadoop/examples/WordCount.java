@@ -61,11 +61,26 @@ public class WordCount {
     public void reduce(Text key, Iterable<IntWritable> values, 
                        Context context
                        ) throws IOException, InterruptedException {
+      //LOG.info("Jianan: enters WordCount()");
+      //LOG.info("Jianan; WordCount: before reduce() key = " + key);
+
+      //System.out.println("Jianan: WordCount: start processing [Enter");
+      
       int sum = 0;
       for (IntWritable val : values) {
+
+        //System.out.println("Jianan: WordCount: val = " + val.get());
+        
         sum += val.get();
       }
+
+      System.out.println("Jianan: WordCount: result " + sum);      
+
       result.set(sum);
+      //LOG.info("Jianan: WordCount: after reduce() key = " + key);
+
+      System.out.println("Jianan: WordCount: written result = " + result.get());
+      
       context.write(key, result);
     }
   }
