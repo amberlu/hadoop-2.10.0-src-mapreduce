@@ -162,49 +162,49 @@ public class ReduceContextImpl<KEYIN,VALUEIN,KEYOUT,VALUEOUT>
     }
   }
 
-  // Mark: COS518 Edition
+  // // Mark: COS518 Edition
 
-  // Given an input buffer for the record's value (of Type MapWritable)
-  // check whether it corresponds to a dummy record or not
-  public boolean isDummyRecord(DataInputBuffer inputVal) throws IOException, InterruptedException {
-    tmpInputBuffer = new DataInputBuffer();
-    tmpDeserializer.open(tmpInputBuffer);
-    tmpInputBuffer.reset(inputVal.getData(), inputVal.getPosition(), inputVal.getLength() - inputVal.getPosition());
+  // // Given an input buffer for the record's value (of Type MapWritable)
+  // // check whether it corresponds to a dummy record or not
+  // public boolean isDummyRecord(DataInputBuffer inputVal) throws IOException, InterruptedException {
+  //   tmpInputBuffer = new DataInputBuffer();
+  //   tmpDeserializer.open(tmpInputBuffer);
+  //   tmpInputBuffer.reset(inputVal.getData(), inputVal.getPosition(), inputVal.getLength() - inputVal.getPosition());
 
-    tmpOutputVal = new MapWritable();
-    tmpOutputVal = tmpDeserializer.deserialize(tmpOutputVal);
-    if (tmpOutputVal.containsKey(new IntWritable(0))) {
-      return true;
-    }
-    return false;
-  }
+  //   tmpOutputVal = new MapWritable();
+  //   tmpOutputVal = tmpDeserializer.deserialize(tmpOutputVal);
+  //   if (tmpOutputVal.containsKey(new IntWritable(0))) {
+  //     return true;
+  //   }
+  //   return false;
+  // }
 
-  // Find the next valid record 
-  // And update certain global fields: hasMore, nextKeyIsSame
-  public void findNextValidRecord() throws IOException, InterruptedException{
-    if (melbourneShuffleEnabled) {
-      if (hasMore) {
-        if (isDummyRecord(input.getValue())) { // if next is a dummy record
-          hasMore = input.next(); // move on to the next item in input 
-          findNextValidRecord();
-        } else { // next is a valid record
-          DataInputBuffer inputKey = input.getKey();
-          nextKeyIsSame = comparator.compare(currentRawKey.getBytes(), 0, // update the field nextKeyIsSame
-                                     currentRawKey.getLength(),
-                                     inputKey.getData(),
-                                     inputKey.getPosition(),
-                                     inputKey.getLength() - inputKey.getPosition()
-                                         ) == 0;
-          return;
-        }
-      } else { // no more records to process
-        nextKeyIsSame = false;
-        return;
-      }
-    }
-    return;
-  }
-  // Mark: End
+  // // Find the next valid record 
+  // // And update certain global fields: hasMore, nextKeyIsSame
+  // public void findNextValidRecord() throws IOException, InterruptedException{
+  //   if (melbourneShuffleEnabled) {
+  //     if (hasMore) {
+  //       if (isDummyRecord(input.getValue())) { // if next is a dummy record
+  //         hasMore = input.next(); // move on to the next item in input 
+  //         findNextValidRecord();
+  //       } else { // next is a valid record
+  //         DataInputBuffer inputKey = input.getKey();
+  //         nextKeyIsSame = comparator.compare(currentRawKey.getBytes(), 0, // update the field nextKeyIsSame
+  //                                    currentRawKey.getLength(),
+  //                                    inputKey.getData(),
+  //                                    inputKey.getPosition(),
+  //                                    inputKey.getLength() - inputKey.getPosition()
+  //                                        ) == 0;
+  //         return;
+  //       }
+  //     } else { // no more records to process
+  //       nextKeyIsSame = false;
+  //       return;
+  //     }
+  //   }
+  //   return;
+  // }
+  // // Mark: End
 
 
   /**
