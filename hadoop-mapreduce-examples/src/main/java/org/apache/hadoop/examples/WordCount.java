@@ -113,8 +113,8 @@ public class WordCount {
     // COS518 Edition
     // set number of reduce tasks
     // this is just for testing purposes
-    job.setNumReduceTasks(2); // Jianan 
-    LOG.info("Jianan: WordCount.java # of reducers set to 2");
+    job.setNumReduceTasks(3); // Jianan 
+    LOG.info("Jianan: WordCount.java # of reducers set to 3");
 
     for (int i = 0; i < otherArgs.length - 1; ++i) {
       FileInputFormat.addInputPath(job, new Path(otherArgs[i]));
