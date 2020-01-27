@@ -57,6 +57,12 @@ import org.apache.hadoop.util.Progress;
 import org.apache.hadoop.util.Progressable;
 import org.apache.hadoop.util.ReflectionUtils;
 
+// COS518: Added 
+import org.apache.hadoop.io.MapWritable; 
+import org.apache.hadoop.io.IntWritable; 
+import org.apache.hadoop.io.serializer.Deserializer;
+import org.apache.hadoop.io.serializer.SerializationFactory;
+
 /** A Reduce task. */
 @InterfaceAudience.Private
 @InterfaceStability.Unstable
@@ -583,6 +589,16 @@ public class ReduceTask extends Task {
                      Class<INVALUE> valueClass
                      ) throws IOException,InterruptedException, 
                               ClassNotFoundException {
+    // COS518 Added
+    // get the user provided melbourne shuffle key
+    // and initialize deserializer for MapWritables 
+    final Integer melbourneKey = job.getMelbourneKey();
+    final DataInputBuffer buffer = new DataInputBuffer();
+    final SerializationFactory serializationFactory = new SerializationFactory(job);
+    final Deserializer<MapWritable> newValueDeserializer = serializationFactory.getDeserializer(MapWritable.class);
+    newValueDeserializer.open(buffer);
+    final IntWritable dummyKey = new IntWritable(0);
+
     // wrap value iterator to report progress.
     final RawKeyValueIterator rawIter = rIter;
     rIter = new RawKeyValueIterator() {
@@ -598,7 +614,30 @@ public class ReduceTask extends Task {
       public DataInputBuffer getValue() throws IOException {
         return rawIter.getValue();
       }
+
       public boolean next() throws IOException {
+        // MARK: COS518 Edition
+        // if melbourne shuffle enabled, return if there exists the next valid record
+        if (melbourneKey != 0) {
+          boolean ret = rawIter.next();
+          MapWritable newValue = new MapWritable();
+          DataInputBuffer rawValue;
+          while (ret) {
+            rawValue = rawIter.getValue();
+            buffer.reset(rawValue.getData(), rawValue.getPosition(), rawValue.getLength() - rawValue.getPosition());
+            newValue = newValueDeserializer.deserialize(newValue);
+
+            // skip any dummy records until finding the first valid record 
+            if (newValue.containsKey(dummyKey)) {
+              ret = rawIter.next();
+            } else {
+              break;
+            }
+          }
+          return ret;
+        }
+        // MARK: End
+
         boolean ret = rawIter.next();
         reporter.setProgress(rawIter.getProgress().getProgress());
         return ret;
@@ -623,7 +662,8 @@ public class ReduceTask extends Task {
                                                trackedRW,
                                                committer,
                                                reporter, comparator, keyClass,
-                                               valueClass, job.getMelbourneKey()); // COS518 Edition: pass melbourne key if any
+                                               valueClass, melbourneKey); // COS518 Edition: pass melbourne key if any
+    // job.getMelbourneKey()
     try {
       reducer.run(reducerContext);
     } finally {

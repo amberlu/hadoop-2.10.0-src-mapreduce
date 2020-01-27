@@ -61,26 +61,11 @@ public class WordCount {
     public void reduce(Text key, Iterable<IntWritable> values, 
                        Context context
                        ) throws IOException, InterruptedException {
-      //LOG.info("Jianan: enters WordCount()");
-      //LOG.info("Jianan; WordCount: before reduce() key = " + key);
-
-      //System.out.println("Jianan: WordCount: start processing [Enter");
-      
       int sum = 0;
       for (IntWritable val : values) {
-
-        //System.out.println("Jianan: WordCount: val = " + val.get());
-        
         sum += val.get();
       }
-
-      System.out.println("Jianan: WordCount: result " + sum);      
-
       result.set(sum);
-      //LOG.info("Jianan: WordCount: after reduce() key = " + key);
-
-      System.out.println("Jianan: WordCount: written result = " + result.get());
-      
       context.write(key, result);
     }
   }
@@ -96,26 +81,22 @@ public class WordCount {
     job.setJarByClass(WordCount.class);
     job.setMapperClass(TokenizerMapper.class);
     
-    // COS518 Edition
-    // disable combiner
+    // COS 518 Uncomment: disable combiner
     //job.setCombinerClass(IntSumReducer.class);  
     
     job.setReducerClass(IntSumReducer.class);
     job.setOutputKeyClass(Text.class);
     job.setOutputValueClass(IntWritable.class);
 
-    // COS518 Edition
+    // COS518 Edition: 
     // user generates a secret key
     // provides it to the job to perform melbourne shuffle
-    int secret_key = 1234; // Jianan 
-    job.setMelbourneShuffle(secret_key); // Jianan
+    int secret_key = 1234;  
+    job.setMelbourneShuffle(secret_key); 
 
     // COS518 Edition
-    // set number of reduce tasks
-    // this is just for testing purposes
-
-    job.setNumReduceTasks(3); // Jianan 
-    LOG.info("Jianan: WordCount.java # of reducers set to 3");
+    // set number of reduce tasks, this is just for testing purposes
+    job.setNumReduceTasks(3); 
 
     for (int i = 0; i < otherArgs.length - 1; ++i) {
       FileInputFormat.addInputPath(job, new Path(otherArgs[i]));

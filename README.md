@@ -1,25 +1,52 @@
-### Major Modifications (under hadoop-mapreduce-project)
+# Hadoop MapReduce + Melbourne Shuffle
 
-* pseudo random partitino assignment - done
+[The Melbourne shuffle](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/MSR-TR-2015-70.pdf) includes three core functionalities: 
 
-* intermediate file encryption - done (directly invoke hadoop intermediate encryption flag; we can have out own implementation if time permits)
+* intermediate file encryption: Mappers encrypt intermediate key value pairs and store them on the local disk, which are later read and decrypted by Reducers. 
 
-* dummy records padding - in progress
+* pseudo random partition assignment: Given a user-provided secret key, the partition assignment of every key value pair is indistinguishable from a truly random assignment to any outside obeserver without knowing the key. This makes the partition assignment less predictable than a simple hashing algorithm (e.g. key.hashCode() used in the current Hadoop mapreduce).
 
-Search keyword "COS518 Edition" in the following files, you will see the marked changes. 
+* dummy records padding: Every Mapper pads its own intermediate output files (one for each partition) upto some equal size.
 
-Currently the code is still messy as I added a lot of print messages and am in the progress of implementing dummy padding. I will clean things after the major functionalities are completed. 
+The first feature is already implemented in [Hadoop Mapreduce](https://hadoop.apache.org/docs/r2.10.0/hadoop-mapreduce-client/hadoop-mapreduce-client-core/EncryptedShuffle.html) by simply setting *mapreduce.job.encrypted-intermediate-data job* property to true in the corresponding configuration file. 
 
-#### Under hadoop-mapreduce-client-core
+This project integrates the latter two features into the source code of Hadoop 2.10.0 mapreduce module.  
 
-mapreduce/Job.java: setMelbourneShuffle()
 
+## Major Code Modifications 
+
+All changes are highlighted with "COS518" comments. Below is a summary of major files being modified. 
+
+#### Under hadoop-mapreduce-client/hadoop-mapreduce-client-core/src/main/java/org/apache/hadoop
+
+```
 mapred/JobConf.java: setMelbourneShuffleKey(), getMelbourneShuffleKey()
+
+mapred/MapTask.java: PRNG(), PRF(), getPartitions(), flush(), collectDummies(), collect()
+
+mapred/ReduceTask.java: runNewReduce()
 
 mapreduce/MRJobConfig.java: MELBOURNE_KEY
 
-mapred/MapTask.java: in NewOutputCollector class: PRNG(), PRF(), and getPartitions()
+mapreduce/Job.java: setMelbourneShuffle()
 
-#### Under hadoop-mapreduce-examples 
+mapreduce/task/ReduceContextImpl.java: nextKeyValue()
+```
 
+#### Under hadoop-mapreduce-examples/src/main/java/org/apache/hadoop/ 
+
+```
 examples/WordCount.java: main()
+```
+
+## How To Replicate
+
+To run this modified version of mapreduce, download [Hadoop 2.10.0 source code](https://archive.apache.org/dist/hadoop/common/hadoop-2.10.0/hadoop-2.10.0-src.tar.gz). 
+
+Replace **hadoop-mapreduce-project** folder under its root directory with this repository. 
+
+Navigate to the root directory and compile the entire source code of Hadoop. 
+
+Note: Check hadoop-mapreduce-examples/src/main/java/org/apache/hadoop/examples/WordCount.java to see how to invoke the Melbourne shuffle.
+
+
